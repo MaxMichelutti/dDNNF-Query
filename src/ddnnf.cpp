@@ -40,7 +40,7 @@ void DDNNFNode::add_parent(int parent_id) {
     parents.insert(parent_id);
 }
 
-bool DDNNFNode::is_root() {
+bool DDNNFNode::is_root()const{
     return manager->is_root(this->id);
 }
 
@@ -74,12 +74,10 @@ void DDNNFNode::remove_parent(int parent_id){
 
 DDNNF::DDNNF() {
     nodes = std::vector<DDNNFNode*>();
-    root_id = -1;
-    true_node_id = -1;
-    false_node_id = -1;
     literals = std::map<int, int>();
     mentioned_vars = std::set<int>();
-    total_variables = 0;
+
+    reset();
 }
 
 DDNNF::~DDNNF() {
@@ -129,7 +127,7 @@ int DDNNF::add_node(ddnnf_node_type type, int var) {
     } else if(type == DDNNF_LITERAL){
         // check var index is valid
         if (literals.find(var) == literals.end()) {
-            std::cerr << "Error: Invalid literal" << std::endl;
+            std::cerr << "Error: Invalid literal already has node" << std::endl;
             exit(1);
         }
         // check there is not a literal for the same variable index
@@ -169,17 +167,48 @@ int DDNNF::get_literal_id(int var) {
     return literals[var];
 }
 
+void DDNNF::reset(){
+    // delete all non-null nodes
+    for(auto node: nodes){
+        if(node != nullptr){
+            delete node;
+        }
+    }
+    nodes.clear();
+    literals.clear();
+    mentioned_vars.clear();
+    
+    root_id = -1;
+    true_node_id = -1;
+    false_node_id = -1;
+    total_variables = 0;
+}
+
 void DDNNF::prepare_literals(int num_vars) {
     // associates to all variables a pointer to null
     for (int i = 1; i <= num_vars; i++) {
-        literals[i] = -1;
-        literals[-i] = -1;
+        // check if key i exists
+        if (literals.find(i) == literals.end()) {
+            literals[i] = -1;
+        }
+        if (literals.find(-i) == literals.end()) {
+            literals[-i] = -1;
+        }
     }
 }
 
 void print_c2d_error(){
     std::cerr << "Error: File is not in c2d nnf format" << std::endl;
     exit(1);
+}
+
+void print_d4_error(){
+    std::cerr << "Error: File is not in d4 nnf format" << std::endl;
+    exit(1);
+}
+
+bool is_digit(char c){
+    return (c >= '0') && (c <= '9');
 }
 
 void DDNNF::read_c2d_file(const char* filename){
@@ -191,14 +220,159 @@ void DDNNF::read_ddnnf_file(const char* filename){
 }
 
 void DDNNF::read_d4_file(const char* filename){
-    read_file(filename,D4_FILE);
+    reset();
+    std::ifstream infile;
+
+    // check if file exists
+    infile.open(filename);
+    if (!infile) {
+        std::cerr << "Error: Unable to open file " << filename << std::endl;
+        exit(1);
+    }
+
+    std::string line;
+    std::string token;
+    bool found_nodes = false;
+    int max_literal = 0;
+    int max_defined_node = 0;
+    bool defining_edges = false;
+    // add buffer 0-th AND node
+    // since D4 format starts at node index 1
+    add_node(DDNNF_AND,0);
+    while (std::getline(infile,line)){
+        std::istringstream iss(line);
+        // skip empty lines
+        if(!(iss >> token)){continue;}
+
+        // check if current line describes a node
+        char node_type = token[0];
+        switch (node_type)
+        {
+            case 'a':{
+                if(defining_edges){print_d4_error();}
+                found_nodes = true;
+                add_node(DDNNF_AND,0);
+                max_defined_node++;
+                continue;
+            }break;
+            case 'o':{
+                if(defining_edges){print_d4_error();}
+                found_nodes = true;
+                add_node(DDNNF_OR,0);
+                max_defined_node++;
+                continue;
+            }break;
+            case 't':{
+                if(defining_edges){print_d4_error();}
+                found_nodes = true;
+                add_node(DDNNF_TRUE,0);
+                max_defined_node++;
+                continue;
+            }break;
+            case 'f':{
+                if(defining_edges){print_d4_error();}
+                found_nodes = true;
+                add_node(DDNNF_FALSE,0);
+                max_defined_node++;
+                continue;
+            }break;
+            default:{
+                // line is edge, should start with a number
+                if(!is_digit(node_type)){
+                    print_d4_error();
+                }
+                defining_edges = true;
+            }
+        }
+
+        // check if current line describes an edge
+        int source_id;
+        int destination_id;
+        try{
+            source_id = std::stoi(token);
+        }catch(std::invalid_argument& e){print_d4_error();}
+        // check source bounds
+        if(source_id < 1 || source_id > max_defined_node){print_d4_error();}
+        if(!(iss >> token)){print_d4_error();}
+        try{
+            destination_id = std::stoi(token);
+        }catch(std::invalid_argument& e){print_d4_error();}
+        // check dst bounds
+        if(destination_id < 1 || destination_id > max_defined_node){print_d4_error();}
+        // check source and dst are distinct
+        if(source_id == destination_id){print_d4_error();}
+
+        // read literals
+        std::vector<int> edge_literal_node_ids = std::vector<int>();
+        while(iss >> token){
+            int literal;
+            try{
+                literal = std::stoi(token);
+            }catch(std::invalid_argument& e){print_d4_error();}
+            // if literal is 0, line ends
+            if(literal == 0){break;}
+            int abs_literal = abs(literal);
+            if(abs_literal > max_literal){
+                max_literal = abs_literal;
+                prepare_literals(max_literal);
+            }
+            
+            if(literals[literal] == -1){
+                // create node for literal if not present
+                add_node(DDNNF_LITERAL,literal);
+            }
+            edge_literal_node_ids.push_back(literals[literal]);
+        }
+
+        // complete edge creation
+        if(edge_literal_node_ids.size() == 0){
+            // add edge
+            add_edge(source_id,destination_id);
+            continue;
+        }else{
+            // add edge with intermetiate AND node
+            int and_node_id = add_node(DDNNF_AND,0);
+            add_edge(source_id,and_node_id);
+            add_edge(and_node_id,destination_id);
+            // add edges from and node to literals
+            for(int literal_node_id: edge_literal_node_ids){
+                add_edge(and_node_id,literal_node_id);
+            }
+        }
+    }
+    total_variables = max_literal;
+    // close stream
+    infile.close();
+
+    // check that at least one node was found
+    if(!found_nodes){
+        std::cerr << "Error: No nodes defined" << std::endl;
+        exit(1);
+    }
+
+    // find root node
+    for(int i = 1; i <= max_defined_node; i++){
+        if(nodes[i]->get_parents().size() == 0){
+            root_id = i;
+            break;
+        }
+    }
+    if(root_id == -1){
+        std::cerr << "Error: No root node found" << std::endl;
+        exit(1);
+    }
+
+    // complete reading by simplifying the formula
+    simplify();
+
 }
 
 void DDNNF::read_file(const char* filename, file_format format) {
     if(format == D4_FILE){
-        std::cerr << "Error: D4 format not supported  yet" << std::endl;
+        std::cerr << "Error: D4 format not supported on this function" << std::endl;
         exit(1);
     }
+    reset();
     
     // init stream
     std::ifstream(infile);
@@ -357,166 +531,166 @@ void DDNNF::serialize(const char * filename)const{
     out.close();
 }
 
-long DDNNF::model_count(const std::set<int>& vars)const{
-    //check that all vars are positive and inside the range of total_variables
-    for(int var: vars){
-        if(var <= 0){
-            std::cerr << "Error: Non positive variable provided for MC" << std::endl;
-            exit(1);
-        }
-        if(var > total_variables){
-            std::cerr << "Error: Variable index out of range" << std::endl;
-            exit(1);
-        }
-    }
+// long DDNNF::model_count(const std::set<int>& vars)const{
+//     //check that all vars are positive and inside the range of total_variables
+//     for(int var: vars){
+//         if(var <= 0){
+//             std::cerr << "Error: Non positive variable provided for MC" << std::endl;
+//             exit(1);
+//         }
+//         if(var > total_variables){
+//             std::cerr << "Error: Variable index out of range" << std::endl;
+//             exit(1);
+//         }
+//     }
 
-    // compute vars that have to be projected
-    // these vars are all vars that are mentioned in dDNNF
-    // but are not in the interesting vars for model counting
-    std::map<int,bool> projected_vars;
-    for(int var: mentioned_vars){
-        // if a mentioned var does not appear in vars,
-        // add it to projevcted_vars vector,
-        // paired with a false constant
-        if(vars.find(var) == vars.end()){
-            projected_vars.insert(std::make_pair(var,false));
-        }   
-    }
+//     // compute vars that have to be projected
+//     // these vars are all vars that are mentioned in dDNNF
+//     // but are not in the interesting vars for model counting
+//     std::map<int,bool> projected_vars;
+//     for(int var: mentioned_vars){
+//         // if a mentioned var does not appear in vars,
+//         // add it to projevcted_vars vector,
+//         // paired with a false constant
+//         if(vars.find(var) == vars.end()){
+//             projected_vars.insert(std::make_pair(var,false));
+//         }   
+//     }
 
-    if(projected_vars.empty()){
-        std::vector<MCMemoItem> memo = std::vector<MCMemoItem>(nodes.size());
-        mc_dfs(root_id, memo, projected_vars);
+//     if(projected_vars.empty()){
+//         std::vector<MCMemoItem> memo = std::vector<MCMemoItem>(nodes.size());
+//         mc_dfs(root_id, memo, projected_vars);
 
-        // if root result is mc false, then there are no models
-        long result = memo[root_id].model_count;
-        if(result == MC_FALSE){
-            return 0;
-        }
-        // if root result is mc true, then there are 2^|vars| models
-        if(result == MC_TRUE){
-            // 2^|vars|
-            return (1 << vars.size());
-        }
-        // otherwise
-        // count the number of variables that are in vars
-        // and do not appear in memo[root_id].vars
-        int vars_size = vars.size();
-        int root_vars_size = memo[root_id].vars.size();
-        int var_diff = vars_size - root_vars_size;
+//         // if root result is mc false, then there are no models
+//         long result = memo[root_id].model_count;
+//         if(result == MC_FALSE){
+//             return 0;
+//         }
+//         // if root result is mc true, then there are 2^|vars| models
+//         if(result == MC_TRUE){
+//             // 2^|vars|
+//             return (1 << vars.size());
+//         }
+//         // otherwise
+//         // count the number of variables that are in vars
+//         // and do not appear in memo[root_id].vars
+//         int vars_size = vars.size();
+//         int root_vars_size = memo[root_id].vars.size();
+//         int var_diff = vars_size - root_vars_size;
 
-        // result is the model count of the root node times 2^var_diff
-        return result * (1 << var_diff);
-    }else{
-        std::cout<<"Projected Model counting cannot be computed in polytime on dDNNF"<<std::endl;
-        exit(1);
-    }
-}
+//         // result is the model count of the root node times 2^var_diff
+//         return result * (1 << var_diff);
+//     }else{
+//         std::cout<<"Projected Model counting cannot be computed in polytime on dDNNF"<<std::endl;
+//         exit(1);
+//     }
+// }
 
-MCMemoItem::MCMemoItem(){
-    vars = std::set<int>();
-    model_count = MC_UNKNOWN;
-}
+// MCMemoItem::MCMemoItem(){
+//     vars = std::set<int>();
+//     model_count = MC_UNKNOWN;
+// }
 
-void DDNNF::mc_dfs(int node_id, std::vector<MCMemoItem>& memo, const std::map<int,bool>& proj_vars)const{
-    std::set<int> childs = nodes[node_id]->get_children();
-    for(int child: childs){
-        // if not visited
-        if(memo[child].model_count == MC_UNKNOWN){
-            mc_dfs(child,memo,proj_vars);
-        }
-    }
-    switch(nodes[node_id]->get_type()){
-        case DDNNF_TRUE:{
-            memo[node_id].model_count = MC_TRUE;
-        }break;
-        case DDNNF_FALSE:{
-            memo[node_id].model_count = MC_FALSE;
-        }break;
-        case DDNNF_LITERAL:{
-            int var = nodes[node_id] -> get_var();
-            // check if var is in proj_vars
-            if (proj_vars.find(abs(var)) != proj_vars.end()) { // proj_vars has key for var
-                bool truth = proj_vars.at(abs(var));
-                // if var is negated, change truth of node
-                if(var<0){truth = ! truth;}
-                if(truth){ // proj_var is assigned true
-                    memo[node_id].model_count = MC_TRUE;
-                }else{// proj_var is assigned false
-                    memo[node_id].model_count = MC_FALSE;
-                }
-            }else{ // var is not projected
-                memo[node_id].vars.insert(abs(nodes[node_id]->get_var()));
-                memo[node_id].model_count = 1;
-            }
-        }break;
-        case DDNNF_OR:{
-            for(int child: childs){
-                // insert all vars from each child
-                memo[node_id].vars.insert(memo[child].vars.begin(),memo[child].vars.end());
+// void DDNNF::mc_dfs(int node_id, std::vector<MCMemoItem>& memo, const std::map<int,bool>& proj_vars)const{
+//     std::set<int> childs = nodes[node_id]->get_children();
+//     for(int child: childs){
+//         // if not visited
+//         if(memo[child].model_count == MC_UNKNOWN){
+//             mc_dfs(child,memo,proj_vars);
+//         }
+//     }
+//     switch(nodes[node_id]->get_type()){
+//         case DDNNF_TRUE:{
+//             memo[node_id].model_count = MC_TRUE;
+//         }break;
+//         case DDNNF_FALSE:{
+//             memo[node_id].model_count = MC_FALSE;
+//         }break;
+//         case DDNNF_LITERAL:{
+//             int var = nodes[node_id] -> get_var();
+//             // check if var is in proj_vars
+//             if (proj_vars.find(abs(var)) != proj_vars.end()) { // proj_vars has key for var
+//                 bool truth = proj_vars.at(abs(var));
+//                 // if var is negated, change truth of node
+//                 if(var<0){truth = ! truth;}
+//                 if(truth){ // proj_var is assigned true
+//                     memo[node_id].model_count = MC_TRUE;
+//                 }else{// proj_var is assigned false
+//                     memo[node_id].model_count = MC_FALSE;
+//                 }
+//             }else{ // var is not projected
+//                 memo[node_id].vars.insert(abs(nodes[node_id]->get_var()));
+//                 memo[node_id].model_count = 1;
+//             }
+//         }break;
+//         case DDNNF_OR:{
+//             for(int child: childs){
+//                 // insert all vars from each child
+//                 memo[node_id].vars.insert(memo[child].vars.begin(),memo[child].vars.end());
 
-                // handle edge case where OR contains a 
-                // true child or an ignored literal
-                if (memo[child].model_count == MC_TRUE) {
-                    memo[node_id].model_count = MC_TRUE;
-                    memo[node_id].vars.clear();
-                    return;
-                }
-            }
-            // amount of models is the sum of models from each child
-            int total_models = 0;
-            int mentioned_vars = memo[node_id].vars.size();
-            for(int child: childs){
-                // skip children that are false since they dont affect mc of or node
-                if(memo[child].model_count == MC_FALSE){continue;}
+//                 // handle edge case where OR contains a 
+//                 // true child or an ignored literal
+//                 if (memo[child].model_count == MC_TRUE) {
+//                     memo[node_id].model_count = MC_TRUE;
+//                     memo[node_id].vars.clear();
+//                     return;
+//                 }
+//             }
+//             // amount of models is the sum of models from each child
+//             int total_models = 0;
+//             int mentioned_vars = memo[node_id].vars.size();
+//             for(int child: childs){
+//                 // skip children that are false since they dont affect mc of or node
+//                 if(memo[child].model_count == MC_FALSE){continue;}
 
-                // models of a child are its total_models times 2^x
-                // where x is the number of variables that the child does not mention
-                int child_mentioned_vars = memo[child].vars.size();
-                int var_diff = mentioned_vars - child_mentioned_vars;
-                // (1 << var_diff) = 2^var_diff due to binary representation of numbers
-                // notice that var_diff is always non negative
-                int child_models = memo[child].model_count * (1 << var_diff);
-                total_models += child_models;
-            }
-            // if only false children mc is mc false
-            if (total_models == 0) {
-                memo[node_id].model_count = MC_FALSE;
-                memo[node_id].vars.clear();
-                return;
-            }
-            memo[node_id].model_count = total_models;
-        }break;
-        case DDNNF_AND:{
-            for(int child: childs){
-                // insert all vars from child in vars of node
-                memo[node_id].vars.insert(memo[child].vars.begin(),memo[child].vars.end());
+//                 // models of a child are its total_models times 2^x
+//                 // where x is the number of variables that the child does not mention
+//                 int child_mentioned_vars = memo[child].vars.size();
+//                 int var_diff = mentioned_vars - child_mentioned_vars;
+//                 // (1 << var_diff) = 2^var_diff due to binary representation of numbers
+//                 // notice that var_diff is always non negative
+//                 int child_models = memo[child].model_count * (1 << var_diff);
+//                 total_models += child_models;
+//             }
+//             // if only false children mc is mc false
+//             if (total_models == 0) {
+//                 memo[node_id].model_count = MC_FALSE;
+//                 memo[node_id].vars.clear();
+//                 return;
+//             }
+//             memo[node_id].model_count = total_models;
+//         }break;
+//         case DDNNF_AND:{
+//             for(int child: childs){
+//                 // insert all vars from child in vars of node
+//                 memo[node_id].vars.insert(memo[child].vars.begin(),memo[child].vars.end());
 
-                // handle edge case where AND contains a false child
-                if (memo[child].model_count == MC_FALSE) {
-                    memo[node_id].model_count = MC_FALSE;
-                    memo[node_id].vars.clear();
-                    return;
-                }
-            }
-            // amount of models is the product of models from each child
-            int total_models = 1;
-            bool found_non_true_child = false;
-            for(int child: childs){
-                // skip children that are true since they dont affect mc of and node
-                if(memo[child].model_count == MC_TRUE){continue;}
-                found_non_true_child = true;
-                total_models *= memo[child].model_count;
-            }
-            // if only true children, mc is mc true
-            if (!found_non_true_child) {
-                memo[node_id].model_count = MC_TRUE;
-                memo[node_id].vars.clear();
-                return;
-            }
-            memo[node_id].model_count = total_models;
-        }break;        
-    }
-}
+//                 // handle edge case where AND contains a false child
+//                 if (memo[child].model_count == MC_FALSE) {
+//                     memo[node_id].model_count = MC_FALSE;
+//                     memo[node_id].vars.clear();
+//                     return;
+//                 }
+//             }
+//             // amount of models is the product of models from each child
+//             int total_models = 1;
+//             bool found_non_true_child = false;
+//             for(int child: childs){
+//                 // skip children that are true since they dont affect mc of and node
+//                 if(memo[child].model_count == MC_TRUE){continue;}
+//                 found_non_true_child = true;
+//                 total_models *= memo[child].model_count;
+//             }
+//             // if only true children, mc is mc true
+//             if (!found_non_true_child) {
+//                 memo[node_id].model_count = MC_TRUE;
+//                 memo[node_id].vars.clear();
+//                 return;
+//             }
+//             memo[node_id].model_count = total_models;
+//         }break;        
+//     }
+// }
 
 void DDNNF::condition_all(const std::set<int>& vars){
     // check input
@@ -1004,152 +1178,287 @@ DDNNF* DDNNF::clone_ptr()const{
     return new_ddnnf;
 }
 
-void DDNNF::enumerate()const{
-    std::set<int> visited = std::set<int>();
-    std::map<int,std::vector<std::set<int>*>> partial_models = std::map<int,std::vector<std::set<int>*>>();
-    std::vector<int> parents_left = std::vector<int>(nodes.size(),0);
-    for(auto node: nodes){
-        partial_models.insert(std::make_pair(node->get_id(),std::vector<std::set<int>*>()));
-        parents_left[node->get_id()] = node->get_parents().size();
-    }
-    enumerate_rec(root_id,visited,partial_models, parents_left);
-    for(auto total_model : partial_models[root_id]){
-        for(auto var: *total_model){
-            std::cout<<var<<" ";
-        }
-        std::cout<<std::endl;
-    }
-    // free memory of root
-    for(auto model: partial_models[root_id]){
-        delete model;
-    }
-    partial_models.erase(root_id);
+// void DDNNF::enumerate()const{
+//     std::set<int> visited = std::set<int>();
+//     std::map<int,std::vector<std::set<int>*>> partial_models = std::map<int,std::vector<std::set<int>*>>();
+//     std::vector<int> parents_left = std::vector<int>(nodes.size(),0);
+//     for(auto node: nodes){
+//         partial_models.insert(std::make_pair(node->get_id(),std::vector<std::set<int>*>()));
+//         parents_left[node->get_id()] = node->get_parents().size();
+//     }
+//     enumerate_rec(root_id,visited,partial_models, parents_left);
+//     for(auto total_model : partial_models[root_id]){
+//         for(auto var: *total_model){
+//             std::cout<<var<<" ";
+//         }
+//         std::cout<<std::endl;
+//     }
+//     // free memory of root
+//     for(auto model: partial_models[root_id]){
+//         delete model;
+//     }
+//     partial_models.erase(root_id);
+// }
+
+// void DDNNF::enumerate_rec(
+//     int node_id, 
+//     std::set<int>& visited, 
+//     std::map<int,std::vector<std::set<int>*>>& partial_models, 
+//     std::vector<int>& parents_left)const{
+//     // skip visited nodes
+//     if(visited.find(node_id) != visited.end()){return;}
+//     // mark current node as visited
+//     visited.insert(node_id);
+
+//     // enum children
+//     std::set<int> children = nodes[node_id]->get_children();
+//     for(auto child: children){
+//         enumerate_rec(child,visited,partial_models, parents_left);
+//     }
+
+//     switch (nodes[node_id]->get_type()){
+//         case DDNNF_TRUE:{
+//             // add the empty set to partial models
+//             partial_models[node_id].push_back(new std::set<int>());
+//             return;
+//         }break;
+//         case DDNNF_FALSE:{
+//             // no partial models
+//             return;
+//         }break;
+//         case DDNNF_LITERAL:{
+//             // add the literal to partial models
+//             partial_models[node_id].push_back(new std::set<int>());
+//             partial_models[node_id][0]->insert(nodes[node_id]->get_var());
+//             return;
+//         }break;
+//         case DDNNF_OR:{
+//             // partial_models are all models of the children
+//             for(auto child: children){
+//                 for(auto model: partial_models[child]){
+//                     partial_models[node_id].push_back(model);
+//                 }
+//                 // avoid deleting child data immediately
+//                 // (by adding a ghost parent):
+//                 // child data will be deleted
+//                 // anyway when the data of this
+//                 // OR node will be deleted
+//                 parents_left[child]++;
+//             }
+//         }break;
+//         case DDNNF_AND:{
+//             // partial_models are all possible combinations of models of the children
+//             std::vector<int> combinations = std::vector<int>();
+//             for(auto child: children){
+//                 combinations.push_back(partial_models[child].size());
+//             }
+//             // indexes vector keeps track of which index of each child is being used
+//             std::vector<int> indexes = std::vector<int>(children.size(),0);
+            
+//             // compute total number of possible combinations
+//             int total_combinations = 1;
+//             for(auto comb: combinations){
+//                 total_combinations *= comb;
+//             }
+
+//             // for each combination
+//             int current_combination = 0;
+//             while(current_combination<total_combinations){
+//                 // add the combination with current indexes to partial models of this node
+//                 std::set<int>* new_model = new std::set<int>();
+//                 int comb_index = 0;
+//                 for(auto child: children){
+//                     for(auto var: *partial_models[child][indexes[comb_index]]){
+//                         new_model->insert(var);
+//                     }
+//                     comb_index++;
+//                 }
+//                 partial_models[node_id].push_back(new_model);
+
+//                 // update indexes vector
+//                 comb_index = 0;
+//                 while(comb_index < indexes.size()){
+//                     indexes[comb_index]++;
+//                     if(indexes[comb_index] == combinations[comb_index]){
+//                         indexes[comb_index] = 0;
+//                         comb_index++;
+//                     }else{break;}
+//                 }
+
+//                 // update counter
+//                 current_combination++;
+//             }
+//         }break;
+//     }
+
+//     // free memory of children partial models
+//     // if no parent for that child is left
+
+//     // This memory delete only works because we
+//     // assume that the dDNNF is simplified
+
+//     // IMPORTANT!!! NEVER delete data of an OR
+//     // node directly! Always delete on its children!
+//     for(auto child_id: children){
+//         parents_left[child_id]--;
+//         if(parents_left[child_id] == 0){
+//             // if node is not OR, delete node's data safely
+//             if(nodes[child_id]->get_type() != DDNNF_OR){
+//                 for(auto model: partial_models[child_id]){
+//                     delete model;
+//                 }
+//                 partial_models.erase(child_id);
+//             }else{
+//                 // if node is OR node, remove one parent from grandchildren
+//                 // if grandchild parents is zero remove safely
+
+//                 // since I assume dDNNF is simplified, than no OR node has
+//                 // an OR node child
+//                 for(auto grandchild: nodes[child_id]->get_children()){
+//                     parents_left[grandchild]--;
+//                     if(parents_left[grandchild] == 0){
+//                         for(auto model: partial_models[grandchild]){
+//                             delete model;
+//                         }
+//                         partial_models.erase(grandchild);
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
+
+void DDNNF::serialize_c2d(const char * filename)const{
+    // clone ddnnf and modify clone to be c2d serializable
+    DDNNF cloned_ddnnf = clone();
+    std::vector<bool> visited = std::vector<bool>(cloned_ddnnf.nodes.size(),false);
+    cloned_ddnnf.make_c2d_rec(cloned_ddnnf.root_id, visited);
+    cloned_ddnnf.recompute_indexes();
+    cloned_ddnnf.recompute_mentioned_vars();
+    // now cloned ddnnf can be serialized as a normal ddnnf
+    cloned_ddnnf.serialize(filename);
 }
 
-void DDNNF::enumerate_rec(
-    int node_id, 
-    std::set<int>& visited, 
-    std::map<int,std::vector<std::set<int>*>>& partial_models, 
-    std::vector<int>& parents_left)const{
-    // skip visited nodes
-    if(visited.find(node_id) != visited.end()){return;}
-    // mark current node as visited
-    visited.insert(node_id);
-
-    // enum children
+void DDNNF::make_c2d_rec(int node_id, std::vector<bool>& visited){
+    if(visited[node_id]){return;}
+    visited[node_id] = true;
     std::set<int> children = nodes[node_id]->get_children();
     for(auto child: children){
-        enumerate_rec(child,visited,partial_models, parents_left);
+        make_c2d_rec(child,visited);
     }
+    switch(nodes[node_id]->get_type()){
+        case DDNNF_OR:{
+            // split OR node into multiple OR nodes
+            // with only two children
+            if(children.size() <= 2){return;}
+            std::queue<int> children_id_queue = std::queue<int>();
+            for(auto child: children){
+                children_id_queue.push(child);
+            }
+            // IDEA: all nodes in queue are always children of node_id
+            // at each iteration take firtst 2 nodes and remove
+            // the edge from node_id to them,
+            // then create a new OR node with these two nodes as children
+            // and add an edge between the new OR node and node_id
+            // then push the new OR node in the back of the queue
+            // repeat until queue has only 2 nodes (the 2 allowed children)
+            // this should result in a balanced tree of OR nodes
+            while(children_id_queue.size() > 2){
+                int first = children_id_queue.front();
+                children_id_queue.pop();
+                int second = children_id_queue.front();
+                children_id_queue.pop();
 
-    switch (nodes[node_id]->get_type()){
-        case DDNNF_TRUE:{
-            // add the empty set to partial models
-            partial_models[node_id].push_back(new std::set<int>());
-            return;
+                // remove old edges
+                nodes[node_id]->remove_child(first);
+                nodes[first]->remove_parent(node_id);
+                nodes[node_id]->remove_child(second);
+                nodes[second]->remove_parent(node_id);
+
+                // create OR node
+                int new_node_id = add_node(DDNNF_OR,0);
+
+                // add new edges
+                add_edge(new_node_id,first);
+                add_edge(new_node_id,second);
+                add_edge(node_id,new_node_id);
+                
+                // push node back into queue
+                children_id_queue.push(new_node_id);
+            }
         }break;
-        case DDNNF_FALSE:{
-            // no partial models
-            return;
-        }break;
-        case DDNNF_LITERAL:{
-            // add the literal to partial models
-            partial_models[node_id].push_back(new std::set<int>());
-            partial_models[node_id][0]->insert(nodes[node_id]->get_var());
-            return;
+        default:return;
+    }
+}
+
+void DDNNF::serialize_d4(const char * filename)const{
+    std::ofstream out(filename);
+    // print nodes with ids shifted by 1
+    for(DDNNFNode* node: nodes){
+        if(node->is_root()){continue;}
+        switch(node->get_type()){
+            // skip serializing root
+            case DDNNF_AND:{
+                out<<"a "<<node->get_id() + 1<<" 0"<<std::endl;
+            }break;
+            case DDNNF_OR:{
+                out<<"o "<<node->get_id() + 1<<" 0"<<std::endl;
+            }break;
+            case DDNNF_LITERAL:{
+                // wrap literal L in OR(L)
+                out<<"o "<<node->get_id() + 1<<" 0"<<std::endl;
+            }break;
+            case DDNNF_TRUE:{
+                out<<"t "<<node->get_id() + 1<<" 0"<<std::endl;
+            }break;
+            case DDNNF_FALSE:{
+                out<<"f "<<node->get_id() + 1<<" 0"<<std::endl;
+            }break;
+        }
+    }
+    // a simplified ddnnf has false only as root
+    if(false_node_id != -1){
+        out<<"f 1 0"<<std::endl;
+        out.close();
+        return;
+    }
+    int fake_true_node_id = nodes.size();
+    int root_shift = 1;
+    if(true_node_id != -1){
+        fake_true_node_id = true_node_id + 1;
+    }else{
+        out<<"t "<<fake_true_node_id<<" 0"<<std::endl;
+        root_shift = 2;
+    }
+    // add root
+    DDNNFNode* root = nodes[root_id];
+    switch(root->get_type()){
+        case DDNNF_AND:{
+            out<<"a "<<root->get_id() + root_shift<<" 0"<<std::endl;
         }break;
         case DDNNF_OR:{
-            // partial_models are all models of the children
-            for(auto child: children){
-                for(auto model: partial_models[child]){
-                    partial_models[node_id].push_back(model);
-                }
-                // avoid deleting child data immediately
-                // (by adding a ghost parent):
-                // child data will be deleted
-                // anyway when the data of this
-                // OR node will be deleted
-                parents_left[child]++;
-            }
+            out<<"o "<<root->get_id() + root_shift<<" 0"<<std::endl;
         }break;
-        case DDNNF_AND:{
-            // partial_models are all possible combinations of models of the children
-            std::vector<int> combinations = std::vector<int>();
-            for(auto child: children){
-                combinations.push_back(partial_models[child].size());
-            }
-            // indexes vector keeps track of which index of each child is being used
-            std::vector<int> indexes = std::vector<int>(children.size(),0);
-            
-            // compute total number of possible combinations
-            int total_combinations = 1;
-            for(auto comb: combinations){
-                total_combinations *= comb;
-            }
-
-            // for each combination
-            int current_combination = 0;
-            while(current_combination<total_combinations){
-                // add the combination with current indexes to partial models of this node
-                std::set<int>* new_model = new std::set<int>();
-                int comb_index = 0;
-                for(auto child: children){
-                    for(auto var: *partial_models[child][indexes[comb_index]]){
-                        new_model->insert(var);
-                    }
-                    comb_index++;
-                }
-                partial_models[node_id].push_back(new_model);
-
-                // update indexes vector
-                comb_index = 0;
-                while(comb_index < indexes.size()){
-                    indexes[comb_index]++;
-                    if(indexes[comb_index] == combinations[comb_index]){
-                        indexes[comb_index] = 0;
-                        comb_index++;
-                    }else{break;}
-                }
-
-                // update counter
-                current_combination++;
-            }
+        case DDNNF_LITERAL:{
+            // wrap literal L in OR(L)
+            out<<"o "<<root->get_id() + root_shift<<" 0"<<std::endl;
         }break;
     }
 
-    // free memory of children partial models
-    // if no parent for that child is left
-
-    // This memory delete only works because we
-    // assume that the dDNNF is simplified
-
-    // IMPORTANT!!! NEVER delete data of an OR
-    // node directly! Always delete on its children!
-    for(auto child_id: children){
-        parents_left[child_id]--;
-        if(parents_left[child_id] == 0){
-            // if node is not OR, delete node's data safely
-            if(nodes[child_id]->get_type() != DDNNF_OR){
-                for(auto model: partial_models[child_id]){
-                    delete model;
-                }
-                partial_models.erase(child_id);
-            }else{
-                // if node is OR node, remove one parent from grandchildren
-                // if grandchild parents is zero remove safely
-
-                // since I assume dDNNF is simplified, than no OR node has
-                // an OR node child
-                for(auto grandchild: nodes[child_id]->get_children()){
-                    parents_left[grandchild]--;
-                    if(parents_left[grandchild] == 0){
-                        for(auto model: partial_models[grandchild]){
-                            delete model;
-                        }
-                        partial_models.erase(grandchild);
-                    }
-                }
+    // print edges
+    for(DDNNFNode* node: nodes){
+        int node_d4_id = node->get_id() + 1;
+        if(node->is_root()){
+            node_d4_id = node->get_id() + root_shift;
+        }
+        if(node->is_literal()){
+            // fake sending literal to true and add literal id
+            out<<node_d4_id<<" "<<fake_true_node_id<<" "<<node->get_var()<<" 0"<<std::endl;
+        }else{
+            for(auto child: node->get_children()){
+                out<<node_d4_id<<" "<<child + 1<<" 0"<<std::endl;
             }
         }
     }
+    out.close();
 }
