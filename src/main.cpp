@@ -1,30 +1,53 @@
 #include "ddnnf.h"
+#include "args.h"
 
-int main(){
-    DDNNF ddnnf;
-    ddnnf.read_c2d_file("test_input.nnf");
+int main(int argc, char** argv) {
+    // init objects
+    DDNNFArgs args = DDNNFArgs(argc, argv);
+    DDNNF ddnnf = DDNNF();
 
-    // long mc = ddnnf.model_count({1,2,3,4,11});
+    // read input
+    std::string input_file = args.get_input_file();
+    ddnnf_file_format input_format = args.get_input_format();
+    switch(input_format){
+        case ddnnf_file_format::DDNNF_FILE_TYPE:
+            ddnnf.read_ddnnf_file(input_file.c_str());
+            break;
+        case ddnnf_file_format::C2D_FILE_TYPE:
+            ddnnf.read_c2d_file(input_file.c_str());
+            break;
+        case ddnnf_file_format::D4_FILE_TYPE:
+            ddnnf.read_d4_file(input_file.c_str());
+            break;
+        default:
+            std::cerr << "Error: Invalid input format" << std::endl;
+            exit(1);
+    }
 
-    // std::cout << "Model count: " << mc << std::endl;
+    // perform conditioning if needed
+    std::set<int> conditions = args.get_conditions();
+    if(conditions.size() > 0){
+        ddnnf.condition_all(conditions);
+    }
 
-    // ddnnf.enumerate();
-
-    // ddnnf.condition_all({-2,7,-4,1,-11});
-
-    // std::cout << "Conditioned model count: " << ddnnf.model_count({1,2,3,4,7,11}) << std::endl;
-
-    // ddnnf.enumerate();
-
-    ddnnf.serialize("test_serialized.nnf");
-
-    DDNNF ddnnf2;
-
-    ddnnf2.read_d4_file("test_d4.nnf");
-
-    ddnnf2.serialize("test_serialized_d4.nnf");
-
-    ddnnf2.serialize_d4("test_serialized_d4_format.nnf");
-
+    // write output
+    std::string output_file = args.get_output_file();
+    ddnnf_file_format output_format = args.get_output_format();
+    switch(output_format){
+        case ddnnf_file_format::DDNNF_FILE_TYPE:
+            ddnnf.serialize(output_file.c_str());
+            break;
+        case ddnnf_file_format::C2D_FILE_TYPE:
+            ddnnf.serialize_c2d(output_file.c_str());
+            break;
+        case ddnnf_file_format::D4_FILE_TYPE:
+            ddnnf.serialize_d4(output_file.c_str());
+            break;
+        default:
+            // do nothing, no output file specified
+            break;
+    }
+    
+    // exit
     return 0;
 }
