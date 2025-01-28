@@ -889,13 +889,16 @@ void DDNNF::remove_unreferenced_nodes(){
     // FIND roots
     std::queue<int> unreferenced_node_ids = std::queue<int>();
     for(auto node: nodes){
+        // if a node is nullptr, all regferences to it
+        // must already have been removed
         if(node == nullptr){continue;}
+        // root node is the only unreferenced node
+        // that we have to keep
         if(node->is_root()){continue;}
+        // node is referenced by some parent
         if(node->get_parents().size() != 0){continue;}
-        if((node->is_literal())){
-            // forget from literals
-            literals[node->get_var()] = -1;
-        }
+        // node is not referenced by any parent, 
+        // add it to removal queue
         unreferenced_node_ids.push(node->get_id());
     }
 
