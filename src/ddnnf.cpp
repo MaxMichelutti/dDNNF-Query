@@ -1463,6 +1463,7 @@ void DDNNF::serialize_d4(const char * filename)const{
         count++;
     }
     int fake_true_node_id = count;
+    out<<"t "<<fake_true_node_id<<" 0"<<std::endl;
 
     // print edges
     for(DDNNFNode* node: nodes){
