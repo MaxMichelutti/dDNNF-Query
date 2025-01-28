@@ -33,6 +33,19 @@ bool DDNNFNode::is_true()const{return type==DDNNF_TRUE;}
 bool DDNNFNode::is_false()const{return type==DDNNF_FALSE;}
 
 void DDNNFNode::add_child(int child_id) {
+    if(get_type() == DDNNF_LITERAL){
+        std::cerr << "Error: Cannot add children to literal node" << std::endl;
+        exit(1);
+    }
+    if(get_type() == DDNNF_TRUE){
+        std::cerr << "Error: Cannot add children to true node" << std::endl;
+        exit(1);
+    }
+    if(get_type() == DDNNF_FALSE){
+        std::cerr << "Error: Cannot add children to false node" << std::endl;
+        exit(1);
+    }
+
     children.insert(child_id);
 }
 
@@ -127,7 +140,7 @@ int DDNNF::add_node(ddnnf_node_type type, int var) {
     } else if(type == DDNNF_LITERAL){
         // check var index is valid
         if (literals.find(var) == literals.end()) {
-            std::cerr << "Error: Invalid literal already has node" << std::endl;
+            std::cerr << "Error: Invalid literal" << std::endl;
             exit(1);
         }
         // check there is not a literal for the same variable index
@@ -312,6 +325,7 @@ void DDNNF::read_d4_file(const char* filename){
             // if literal is 0, line ends
             if(literal == 0){break;}
             int abs_literal = abs(literal);
+            mentioned_vars.insert(abs_literal);
             if(abs_literal > max_literal){
                 max_literal = abs_literal;
                 prepare_literals(max_literal);
@@ -722,7 +736,7 @@ void DDNNF::condition(int var){
         add_node(DDNNF_FALSE,0);
     }
     for(auto node: nodes){
-        if(node->get_type() != DDNNF_LITERAL){continue;}
+        if(! node->is_literal()){continue;}
         if(node->get_var() == var){
             literals[var] = -1;
             for(auto parent: node->get_parents()){
@@ -868,23 +882,12 @@ void DDNNF::recompute_indexes_rec(int node_id, std::set<int>& visited, std::vect
 }
 
 void DDNNF::remove_unreferenced_nodes(){
-    // check if true node has no parents and is not root
-    if((true_node_id!=-1) && (nodes[true_node_id]->get_parents().size() == 0) && (! nodes[true_node_id]->is_root())){
-        // delete true node
-        DDNNFNode* old_node = nodes[true_node_id];
-        nodes[true_node_id] = nullptr;
-        delete old_node;
-        true_node_id = -1;
-    }
-    // same for false node
-    if((false_node_id!=-1) && (nodes[false_node_id]->get_parents().size() == 0) && (! nodes[false_node_id]->is_root())){
-        // delete false node
-        DDNNFNode* old_node = nodes[false_node_id];
-        nodes[false_node_id] = nullptr;
-        delete old_node;
-        false_node_id = -1;
-    }
-    // same for all nodes, remembering to update literals map if necessary
+    // find all non-root nodes that do not have parents
+    // these nodes are the roots of unreferenced sub-DAGs
+    // remove in BFS (from root to leaves) these sub-DAGs
+
+    // FIND roots
+    std::queue<int> unreferenced_node_ids = std::queue<int>();
     for(auto node: nodes){
         if(node == nullptr){continue;}
         if(node->is_root()){continue;}
@@ -893,10 +896,35 @@ void DDNNF::remove_unreferenced_nodes(){
             // forget from literals
             literals[node->get_var()] = -1;
         }
-        // delete node
-        DDNNFNode* old_node = nodes[node->get_id()];
-        nodes[node->get_id()] = nullptr;
-        delete old_node;
+        unreferenced_node_ids.push(node->get_id());
+    }
+
+    // BFS
+    while(!unreferenced_node_ids.empty()){
+        int node_to_delete_id = unreferenced_node_ids.front();
+        unreferenced_node_ids.pop();
+        DDNNFNode* node = nodes[node_to_delete_id];
+        // update literals map
+        if(node->is_literal()){
+            literals[node->get_var()] = -1;
+        }
+        // update true and false node ids
+        if(node->is_true()){true_node_id = -1;}
+        if(node->is_false()){false_node_id = -1;}
+
+        // remove node from all children parents
+        for(auto child: node->get_children()){
+            nodes[child]->remove_parent(node_to_delete_id);
+            // if child has no parents, it is a new
+            // unreferenced root, so add it to
+            // unreferenced_node_ids
+            if(nodes[child]->get_parents().size() == 0){
+                unreferenced_node_ids.push(child);
+            }
+        }
+        // now its safe to delete node
+        nodes[node_to_delete_id] = nullptr;
+        delete node;
     }
 }
 

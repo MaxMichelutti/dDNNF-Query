@@ -130,9 +130,11 @@ DDNNFArgs::DDNNFArgs(int argc, char** argv) {
             }
             // read next arg
             std::string next_arg = std::string(argv[i]);
-            while(next_arg[0] != '-'){
+            while(true){
                 try{
+                    // exception may be raised here
                     int var = std::stoi(next_arg);
+                    
                     // check if var or -var is already in conditions
                     if(conditions.find(var) != conditions.end()){
                         std::cerr << "Error: Variable " << var << " is conditioned twice" << std::endl;
@@ -147,11 +149,15 @@ DDNNFArgs::DDNNFArgs(int argc, char** argv) {
                     if(i >= argc){
                         break;
                     }
-                    next_arg = std::string(argv[i]);
                 }catch(std::invalid_argument& e){
-                    std::cerr << "Error: Invalid conditioning variable " << next_arg << std::endl;
-                    exit(1);
+                    if(next_arg[0] == '-'){
+                        break;
+                    }else{
+                        std::cerr << "Error: Invalid conditioning variable " << next_arg << std::endl;
+                        exit(1);
+                    }
                 }
+                next_arg = std::string(argv[i]);
             }
             // need to decrement i since the last arg I read was another option if I get here
             i--;
