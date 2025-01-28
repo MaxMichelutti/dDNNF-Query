@@ -1477,5 +1477,7 @@ void DDNNF::serialize_d4(const char * filename)const{
             }
         }
     }
+
+    // close stream
     out.close();
 }
