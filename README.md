@@ -1,6 +1,6 @@
 # dDNNF-Query
 
-C++ tool that allows to load, condition and serialize dDNNFs. This tool is compatible with both the [d4](https://github.com/crillab/d4) and [c2d](http://reasoning.cs.ucla.edu/c2d) dDNNF compilers formats.
+C++ tool that allows to load, condition and serialize dDNNF formulas. This tool is compatible with both the [d4](https://github.com/crillab/d4) and [c2d](http://reasoning.cs.ucla.edu/c2d) dDNNF compilers formats.
 
 Build binary with ```make```.
 
