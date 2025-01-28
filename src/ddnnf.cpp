@@ -1424,70 +1424,56 @@ void DDNNF::make_c2d_rec(int node_id, std::vector<bool>& visited){
 
 void DDNNF::serialize_d4(const char * filename)const{
     std::ofstream out(filename);
-    // print nodes with ids shifted by 1
-    for(DDNNFNode* node: nodes){
-        if(node->is_root()){continue;}
-        switch(node->get_type()){
-            // skip serializing root
-            case DDNNF_AND:{
-                out<<"a "<<node->get_id() + 1<<" 0"<<std::endl;
-            }break;
-            case DDNNF_OR:{
-                out<<"o "<<node->get_id() + 1<<" 0"<<std::endl;
-            }break;
-            case DDNNF_LITERAL:{
-                // wrap literal L in OR(L)
-                out<<"o "<<node->get_id() + 1<<" 0"<<std::endl;
-            }break;
-            case DDNNF_TRUE:{
-                out<<"t "<<node->get_id() + 1<<" 0"<<std::endl;
-            }break;
-            case DDNNF_FALSE:{
-                out<<"f "<<node->get_id() + 1<<" 0"<<std::endl;
-            }break;
-        }
-    }
-    // a simplified ddnnf has false only as root
+    
+    // a simplified ddnnf has true or false only as root
     if(false_node_id != -1){
         out<<"f 1 0"<<std::endl;
         out.close();
         return;
     }
-    int fake_true_node_id = nodes.size();
-    int root_shift = 1;
     if(true_node_id != -1){
-        fake_true_node_id = true_node_id + 1;
-    }else{
-        out<<"t "<<fake_true_node_id<<" 0"<<std::endl;
-        root_shift = 2;
+        out<<"t 1 0"<<std::endl;
+        out.close();
+        return;
     }
-    // add root
-    DDNNFNode* root = nodes[root_id];
-    switch(root->get_type()){
-        case DDNNF_AND:{
-            out<<"a "<<root->get_id() + root_shift<<" 0"<<std::endl;
-        }break;
-        case DDNNF_OR:{
-            out<<"o "<<root->get_id() + root_shift<<" 0"<<std::endl;
-        }break;
-        case DDNNF_LITERAL:{
-            // wrap literal L in OR(L)
-            out<<"o "<<root->get_id() + root_shift<<" 0"<<std::endl;
-        }break;
+
+    // print nodes with ids shifted by 1
+    int count = 1;
+    std::map<int,int> node_id_to_d4_id = std::map<int,int>();
+    for(auto iter=nodes.rbegin(); iter!=nodes.rend(); ++iter){
+        auto node = *iter;
+        node_id_to_d4_id[node->get_id()] = count;
+        // root will have index 1 always
+        switch(node->get_type()){
+            // skip serializing root
+            case DDNNF_AND:{
+                out<<"a "<<count<<" 0"<<std::endl;
+            }break;
+            case DDNNF_OR:{
+                out<<"o "<<count<<" 0"<<std::endl;
+            }break;
+            case DDNNF_LITERAL:{
+                // wrap literal L in OR(L)
+                out<<"o "<<count<<" 0"<<std::endl;
+            }break;
+            default:{
+                // this should be unreachable
+            }break;
+        }
+        count++;
     }
+    int fake_true_node_id = count;
 
     // print edges
     for(DDNNFNode* node: nodes){
-        int node_d4_id = node->get_id() + 1;
-        if(node->is_root()){
-            node_d4_id = node->get_id() + root_shift;
-        }
+        int node_d4_id = node_id_to_d4_id[node->get_id()];
         if(node->is_literal()){
             // fake sending literal to true and add literal id
             out<<node_d4_id<<" "<<fake_true_node_id<<" "<<node->get_var()<<" 0"<<std::endl;
         }else{
             for(auto child: node->get_children()){
-                out<<node_d4_id<<" "<<child + 1<<" 0"<<std::endl;
+                int child_d4_id = node_id_to_d4_id[child];
+                out<<node_d4_id<<" "<<child_d4_id<<" 0"<<std::endl;
             }
         }
     }
