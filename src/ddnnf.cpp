@@ -779,7 +779,7 @@ void DDNNF::simplify(){
     }
 
     // simplify boolean constants in the DDNNF
-    std::set<int> visited = std::set<int>();
+    std::vector<bool> visited = std::vector<bool>(nodes.size(),false);
     simplify_truth_rec(root_id,visited);
     
     // remove all nodes that 
@@ -806,7 +806,7 @@ void DDNNF::recompute_mentioned_vars(){
 }
 
 void DDNNF::recompute_indexes(){
-    std::set<int> visited = std::set<int>();
+    std::vector<bool> visited = std::vector<bool>(nodes.size(),false);
     std::vector<DDNNFNode*> new_nodes_vector = std::vector<DDNNFNode*>(); 
     std::map<int,int> old_to_new_indexes = std::map<int,int>();
     recompute_indexes_rec(root_id,visited,new_nodes_vector,old_to_new_indexes);
@@ -824,11 +824,11 @@ void DDNNF::recompute_indexes(){
     root_id = nodes.size() - 1;
 }
 
-void DDNNF::recompute_indexes_rec(int node_id, std::set<int>& visited, std::vector<DDNNFNode*>& new_nodes_vector, std::map<int,int>& old_to_new_indexes){
+void DDNNF::recompute_indexes_rec(int node_id, std::vector<bool>& visited, std::vector<DDNNFNode*>& new_nodes_vector, std::map<int,int>& old_to_new_indexes){
     // skip visited nodes
-    if(visited.find(node_id) != visited.end()){return;}
+    if(visited[node_id]){return;}
     // mark current node as visited
-    visited.insert(node_id);
+    visited[node_id] = true;
     // get children of current node
     std::set<int> children = nodes[node_id]->get_children();
     for(auto child: children){
@@ -931,11 +931,11 @@ void DDNNF::remove_unreferenced_nodes(){
     }
 }
 
-void DDNNF::simplify_truth_rec(int node_id, std::set<int>& visited){
+void DDNNF::simplify_truth_rec(int node_id, std::vector<bool>& visited){
     // skip visited nodes
-    if(visited.find(node_id) != visited.end()){return;}
+    if(visited[node_id]){return;}
     // mark current node as visited
-    visited.insert(node_id);
+    visited[node_id] = true;
     // get children of current node
     std::set<int> children = nodes[node_id]->get_children();
     for(auto child: children){

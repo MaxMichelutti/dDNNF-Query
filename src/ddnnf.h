@@ -87,10 +87,10 @@ class DDNNF{
     void add_edge(int parent_id, int child_id);
     //void mc_dfs(int node_id, std::vector<MCMemoItem>& memo,const std::map<int,bool>& vars)const;
     void simplify();
-    void simplify_truth_rec(int node_id, std::set<int>& visited);
+    void simplify_truth_rec(int node_id, std::vector<bool>& visited);
     void remove_unreferenced_nodes();
     void recompute_indexes();
-    void recompute_indexes_rec(int node_id, std::set<int>& visited, std::vector<DDNNFNode*>& new_nodes_vector, std::map<int,int>& old_to_new_indexes);
+    void recompute_indexes_rec(int node_id, std::vector<bool>& visited, std::vector<DDNNFNode*>& new_nodes_vector, std::map<int,int>& old_to_new_indexes);
     void recompute_mentioned_vars();
     //void enumerate_rec(int node_id, std::set<int>& visited, std::map<int,std::vector<std::set<int>*>>& partial_models,std::vector<int>& parents_left)const;
     void read_file(const char* filename, file_format format);
