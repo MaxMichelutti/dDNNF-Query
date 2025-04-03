@@ -21,6 +21,31 @@ DDNNFNode::~DDNNFNode() {
     // this task to the manager
 }
 
+void DDNNFNode::printNodeDetails()const{
+    std::cout << "Node id: " << id << std::endl;
+    std::cout << "Node type: ";
+    switch(type){
+        case DDNNF_AND: std::cout << "AND" << std::endl; break;
+        case DDNNF_OR: std::cout << "OR" << std::endl; break;
+        case DDNNF_LITERAL: std::cout << "LITERAL" << std::endl; break;
+        case DDNNF_TRUE: std::cout << "TRUE" << std::endl; break;
+        case DDNNF_FALSE: std::cout << "FALSE" << std::endl; break;
+    }
+    if(type == DDNNF_LITERAL){
+        std::cout << "Node var: " << var << std::endl;
+    }
+    std::cout << "Node children: ";
+    for(auto child: children){
+        std::cout << child << " ";
+    }
+    std::cout << std::endl;
+    std::cout << "Node parents: ";
+    for(auto parent: parents){
+        std::cout << parent << " ";
+    }
+    std::cout << std::endl;
+}
+
 ddnnf_node_type DDNNFNode::get_type()const{return type;}
 
 int DDNNFNode::get_var()const{return var;}
@@ -335,7 +360,6 @@ void DDNNF::read_d4_file(const char* filename){
             mentioned_vars.insert(abs_literal);
             if(abs_literal > max_literal){
                 max_literal = abs_literal;
-                prepare_literals(max_literal);
             }
             
             literals_found_in_file.push_back(literal);
@@ -364,6 +388,7 @@ void DDNNF::read_d4_file(const char* filename){
     // close stream
     infile.close();
 
+    prepare_literals(total_variables);
     for(auto literal: literals_found_in_file){
         if(literals[literal] == -1){
             // create node for literal if not present
@@ -815,7 +840,7 @@ void DDNNF::simplify(){
     // simplify boolean constants in the DDNNF
     std::vector<bool> visited = std::vector<bool>(nodes.size(),false);
     simplify_truth_rec(root_id,visited);
-    
+
     // remove all nodes that 
     // don't have parents
     // and are not root
@@ -978,6 +1003,7 @@ void DDNNF::simplify_truth_rec(int node_id, std::vector<bool>& visited){
     }
 
     children = nodes[node_id]->get_children();
+
     // simplify node
     switch(nodes[node_id]->get_type()){
         case DDNNF_TRUE: 
@@ -1065,7 +1091,8 @@ void DDNNF::simplify_truth_rec(int node_id, std::vector<bool>& visited){
             // if any child is AND, merge child with node
             children = nodes[node_id]->get_children();
             for(auto child: children){
-                if(nodes[child]->get_type() == DDNNF_AND){
+                if(nodes[child]->get_type() == DDNNF_AND && 
+                    nodes[child]->get_parents().size() == 1){
                     // remove edge from node to child
                     nodes[node_id]->remove_child(child);
                     // add children of child to node
@@ -1162,7 +1189,7 @@ void DDNNF::simplify_truth_rec(int node_id, std::vector<bool>& visited){
             // if any child is OR, merge child with node
             children = nodes[node_id]->get_children();
             for(auto child: children){
-                if(nodes[child]->get_type() == DDNNF_OR){
+                if(nodes[child]->get_type() == DDNNF_OR && nodes[child]->get_parents().size() == 1){
                     // remove edge from node to child
                     nodes[node_id]->remove_child(child);
                     // add children of child to node
@@ -1171,6 +1198,10 @@ void DDNNF::simplify_truth_rec(int node_id, std::vector<bool>& visited){
                         nodes[grandchild]->remove_parent(child);
                     }
                     // remove child
+                    if(child == 57){
+                        std::cout<<"NODE 57 WAS DELETED CAUS CHILD OF MERGE"<<std::endl;
+                        std::cout.flush();
+                    }
                     DDNNFNode* old_child = nodes[child];
                     nodes[child] = nullptr;
                     delete old_child;

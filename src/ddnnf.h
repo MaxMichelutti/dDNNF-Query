@@ -68,6 +68,7 @@ class DDNNFNode {
     bool is_false()const;
     void remove_all_children();
     void change_parents_sign();
+    void printNodeDetails()const;
 };
 
 class DDNNF{
