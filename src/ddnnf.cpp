@@ -215,8 +215,9 @@ void print_c2d_error(){
     exit(1);
 }
 
-void print_d4_error(){
+void print_d4_error(std::string error){
     std::cerr << "Error: File is not in d4 nnf format" << std::endl;
+    std::cerr << error << std::endl;
     exit(1);
 }
 
@@ -248,7 +249,11 @@ void DDNNF::read_d4_file(const char* filename){
     bool found_nodes = false;
     int max_literal = 0;
     int max_defined_node = 0;
-    bool defining_edges = false;
+    // bool defining_edges = false;
+
+    std::vector<std::pair<int,int>> edges_found = std::vector<std::pair<int,int>>();
+    std::vector<std::vector<int>> literals_for_edge = std::vector<std::vector<int>>();
+    std::vector<int> literals_found_in_file = std::vector<int>();
     // add buffer 0-th AND node
     // since D4 format starts at node index 1
     add_node(DDNNF_AND,0);
@@ -262,28 +267,28 @@ void DDNNF::read_d4_file(const char* filename){
         switch (node_type)
         {
             case 'a':{
-                if(defining_edges){print_d4_error();}
+                // if(defining_edges){print_d4_error("and node wile defining edges");}
                 found_nodes = true;
                 add_node(DDNNF_AND,0);
                 max_defined_node++;
                 continue;
             }break;
             case 'o':{
-                if(defining_edges){print_d4_error();}
+                // if(defining_edges){print_d4_error("or node while definining edges");}
                 found_nodes = true;
                 add_node(DDNNF_OR,0);
                 max_defined_node++;
                 continue;
             }break;
             case 't':{
-                if(defining_edges){print_d4_error();}
+                // if(defining_edges){print_d4_error("true node while defining edges");}
                 found_nodes = true;
                 add_node(DDNNF_TRUE,0);
                 max_defined_node++;
                 continue;
             }break;
             case 'f':{
-                if(defining_edges){print_d4_error();}
+                // if(defining_edges){print_d4_error("false node while defining edges");}
                 found_nodes = true;
                 add_node(DDNNF_FALSE,0);
                 max_defined_node++;
@@ -292,9 +297,9 @@ void DDNNF::read_d4_file(const char* filename){
             default:{
                 // line is edge, should start with a number
                 if(!is_digit(node_type)){
-                    print_d4_error();
+                    print_d4_error("node type is not digit");
                 }
-                defining_edges = true;
+                // defining_edges = true;
             }
         }
 
@@ -303,17 +308,19 @@ void DDNNF::read_d4_file(const char* filename){
         int destination_id;
         try{
             source_id = std::stoi(token);
-        }catch(std::invalid_argument& e){print_d4_error();}
+        }catch(std::invalid_argument& e){print_d4_error("source id is not integer");}
         // check source bounds
-        if(source_id < 1 || source_id > max_defined_node){print_d4_error();}
-        if(!(iss >> token)){print_d4_error();}
+        // if(source_id < 1 || source_id > max_defined_node){print_d4_error("source index out of bounds");}
+        if(!(iss >> token)){print_d4_error("cannot find destination for source");}
         try{
             destination_id = std::stoi(token);
-        }catch(std::invalid_argument& e){print_d4_error();}
+        }catch(std::invalid_argument& e){print_d4_error("destination id is not integer");}
         // check dst bounds
-        if(destination_id < 1 || destination_id > max_defined_node){print_d4_error();}
+        // if(destination_id < 1 || destination_id > max_defined_node){print_d4_error("destination index out of bounds");}
         // check source and dst are distinct
-        if(source_id == destination_id){print_d4_error();}
+        if(source_id == destination_id){print_d4_error("source and dst are the same");}
+        // add edge
+        edges_found.push_back(std::make_pair(source_id,destination_id));
 
         // read literals
         std::vector<int> edge_literal_node_ids = std::vector<int>();
@@ -321,7 +328,7 @@ void DDNNF::read_d4_file(const char* filename){
             int literal;
             try{
                 literal = std::stoi(token);
-            }catch(std::invalid_argument& e){print_d4_error();}
+            }catch(std::invalid_argument& e){print_d4_error("literal is not integer");}
             // if literal is 0, line ends
             if(literal == 0){break;}
             int abs_literal = abs(literal);
@@ -331,32 +338,59 @@ void DDNNF::read_d4_file(const char* filename){
                 prepare_literals(max_literal);
             }
             
-            if(literals[literal] == -1){
-                // create node for literal if not present
-                add_node(DDNNF_LITERAL,literal);
-            }
-            edge_literal_node_ids.push_back(literals[literal]);
+            literals_found_in_file.push_back(literal);
+            edge_literal_node_ids.push_back(literal);
         }
 
-        // complete edge creation
-        if(edge_literal_node_ids.size() == 0){
-            // add edge
-            add_edge(source_id,destination_id);
-            continue;
-        }else{
-            // add edge with intermetiate AND node
-            int and_node_id = add_node(DDNNF_AND,0);
-            add_edge(source_id,and_node_id);
-            add_edge(and_node_id,destination_id);
-            // add edges from and node to literals
-            for(int literal_node_id: edge_literal_node_ids){
-                add_edge(and_node_id,literal_node_id);
-            }
-        }
+        literals_for_edge.push_back(edge_literal_node_ids);
+
+        // // complete edge creation
+        // if(edge_literal_node_ids.size() == 0){
+        //     // add edge
+        //     add_edge(source_id,destination_id);
+        //     continue;
+        // }else{
+        //     // add edge with intermetiate AND node
+        //     int and_node_id = add_node(DDNNF_AND,0);
+        //     add_edge(source_id,and_node_id);
+        //     add_edge(and_node_id,destination_id);
+        //     // add edges from and node to literals
+        //     for(int literal_node_id: edge_literal_node_ids){
+        //         add_edge(and_node_id,literal_node_id);
+        //     }
+        // }
     }
     total_variables = max_literal;
     // close stream
     infile.close();
+
+    for(auto literal: literals_found_in_file){
+        if(literals[literal] == -1){
+            // create node for literal if not present
+            add_node(DDNNF_LITERAL,literal);
+        }
+    }
+
+    for(int i = 0; i< edges_found.size();i++){
+        auto edge = edges_found[i];
+        int source_id = edge.first;
+        int destination_id = edge.second;
+        if(source_id < 1 || source_id > max_defined_node){print_d4_error("source index out of bounds");}
+        if(destination_id < 1 || destination_id > max_defined_node){print_d4_error("destination index out of bounds");}
+        auto literals_for_node = literals_for_edge[i];
+        if(literals.empty()){
+            // add edge
+            add_edge(source_id,destination_id);
+        }else{
+            int and_node_id = add_node(DDNNF_AND,0);
+            add_edge(source_id,and_node_id);
+            add_edge(and_node_id,destination_id);
+            // add edges from and node to literals
+            for(int literal_node_id: literals_for_node){
+                add_edge(and_node_id,literals[literal_node_id]);
+            }
+        }
+    }
 
     // check that at least one node was found
     if(!found_nodes){
